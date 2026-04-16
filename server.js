@@ -22,18 +22,24 @@ const upload = multer({ dest: 'uploads/' });
 
 // Google Vision API endpoint
 app.post('/api/analyze-image', upload.single('image'), async (req, res) => {
+  console.log('📸 Received image upload, file:', req.file?.originalname);
+  
   try {
     if (!req.file) {
+      console.error('❌ No file uploaded');
       return res.status(400).json({ error: 'No image uploaded' });
     }
 
     const base64Image = req.file.buffer.toString('base64');
+    console.log('📷 Image size:', base64Image.length, 'bytes');
     
     const visionApiKey = process.env.GOOGLE_VISION_API_KEY;
     if (!visionApiKey) {
+      console.error('❌ No Vision API key configured');
       return res.status(500).json({ error: 'Google Vision API key not configured' });
     }
 
+    console.log('🔍 Calling Google Vision API...');
     const response = await axios.post(
       `https://vision.googleapis.com/v1/images:annotate?key=${visionApiKey}`,
       {
@@ -46,40 +52,53 @@ app.post('/api/analyze-image', upload.single('image'), async (req, res) => {
             ]
           }
         ]
-      }
+      },
+      { timeout: 30000 }
     );
 
-    const labels = response.data.responses[0].labelAnnotations || [];
-    const textAnnotations = response.data.responses[0].textAnnotations || [];
+    console.log('✅ Vision API response received');
+    console.log('📊 Full response:', JSON.stringify(response.data, null, 2));
 
-    // Extract potential food items from labels
+    const labels = response.data.responses?.[0]?.labelAnnotations || [];
+    const textAnnotations = response.data.responses?.[0]?.textAnnotations || [];
+
+    // Extract potential food items from labels - broader matching
+    const foodKeywords = [
+      'food', 'fruit', 'vegetable', 'meat', 'cheese', 'bread', 
+      'egg', 'milk', 'drink', 'snack', 'tomato', 'lettuce', 
+      'onion', 'potato', 'carrot', 'apple', 'banana', 'orange',
+      'chicken', 'beef', 'pork', 'fish', 'rice', 'pasta',
+      'salad', 'cucumber', 'pepper', 'mushroom', 'broccoli'
+    ];
+
     const foodItems = labels
-      .filter(label => 
-        label.description.toLowerCase().includes('food') ||
-        label.description.toLowerCase().includes('fruit') ||
-        label.description.toLowerCase().includes('vegetable') ||
-        label.description.toLowerCase().includes('meat') ||
-        label.description.toLowerCase().includes('cheese') ||
-        label.description.toLowerCase().includes('bread') ||
-        label.description.toLowerCase().includes('egg') ||
-        label.description.toLowerCase().includes('milk') ||
-        label.description.toLowerCase().includes('drink') ||
-        label.description.toLowerCase().includes('snack')
-      )
+      .filter(label => {
+        const desc = label.description.toLowerCase();
+        return foodKeywords.some(keyword => desc.includes(keyword));
+      })
       .map(label => label.description);
 
     // Also include text detected (could be product names)
     const detectedText = textAnnotations.slice(1).map(t => t.description).join(' ');
+    const textItems = detectedText.split(/[\s\n]+/).filter(t => t.length > 2);
+
+    const allItems = [...new Set([...foodItems, ...textItems].filter(Boolean))];
+    
+    console.log('🥬 Detected items:', allItems);
 
     res.json({
       labels: labels.map(l => ({ description: l.description, score: l.score })),
-      foodItems: [...new Set([...foodItems, ...detectedText.split('\n')].filter(Boolean))],
+      foodItems: allItems,
       detectedText
     });
 
   } catch (error) {
-    console.error('Vision API error:', error.response?.data || error.message);
-    res.status(500).json({ error: 'Failed to analyze image' });
+    console.error('❌ Vision API error:', error.response?.data || error.message);
+    console.error('❌ Error details:', JSON.stringify(error.response?.data, null, 2));
+    res.status(500).json({ 
+      error: 'Failed to analyze image',
+      details: error.response?.data?.error?.message || error.message
+    });
   }
 });
 

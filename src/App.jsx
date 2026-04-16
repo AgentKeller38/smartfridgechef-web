@@ -2,13 +2,22 @@ import { useState, useRef } from 'react';
 import Webcam from 'react-webcam';
 import './styles/index.css';
 
+// Demo Food Items (da Cloud-APIs Billing erfordern)
+const COMMON_FOOD_ITEMS = [
+  'Apfel', 'Banane', 'Orange', 'Tomate', 'Gurke', 'Karotte',
+  'Salat', 'Brokkoli', 'Blumenkohl', 'Kartoffel', 'Zwiebel',
+  'Paprika', 'Pilze', 'Eier', 'Milch', 'Käse', 'Brot',
+  'Fleisch', 'Hähnchen', 'Rindfleisch', 'Fisch', 'Reis',
+  'Nudeln', 'Joghurt', 'Butter', 'Sahne', 'Obst', 'Gemüse'
+];
+
 function App() {
   const [image, setImage] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [detectedItems, setDetectedItems] = useState([]);
   const [recipes, setRecipes] = useState([]);
   const [error, setError] = useState('');
-  const [step, setStep] = useState('camera'); // camera, analyzing, results
+  const [step, setStep] = useState('camera');
   const webcamRef = useRef(null);
 
   const captureImage = () => {
@@ -33,43 +42,56 @@ function App() {
     setStep('analyzing');
 
     try {
-      // Convert base64 to blob
-      const response = await fetch(image);
-      const blob = await response.blob();
+      // Simuliere KI-Erkennung (Demo-Modus)
+      await new Promise(resolve => setTimeout(resolve, 2500));
+      
+      // Zufällige Lebensmittel auswählen
+      const numItems = Math.floor(Math.random() * 4) + 3;
+      const shuffled = [...COMMON_FOOD_ITEMS].sort(() => 0.5 - Math.random());
+      const detected = shuffled.slice(0, numItems);
+      
+      console.log('🥬 Erkannte Zutaten (Demo):', detected);
+      setDetectedItems(detected);
 
-      const formData = new FormData();
-      formData.append('image', blob, 'fridge.jpg');
-
-      const apiResponse = await fetch('/api/analyze-image', {
-        method: 'POST',
-        body: formData
-      });
-
-      if (!apiResponse.ok) {
-        throw new Error('Failed to analyze image');
-      }
-
-      const data = await apiResponse.json();
-      setDetectedItems(data.foodItems);
-
-      if (data.foodItems.length > 0) {
-        // Get recipes based on detected items
-        const recipesResponse = await fetch('/api/get-recipes', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ingredients: data.foodItems })
-        });
-
-        if (recipesResponse.ok) {
-          const recipesData = await recipesResponse.json();
-          setRecipes(recipesData.recipes);
+      // Demo-Rezepte anzeigen
+      const demoRecipes = [
+        {
+          id: 1,
+          title: `Schnelles Gericht mit ${detected[0]} und ${detected[1]}`,
+          image: 'https://spoonacular.com/recipeImages/641129-312x231.jpg',
+          readyInMinutes: 15,
+          servings: 2,
+          sourceUrl: 'https://spoonacular.com',
+          usedIngredients: detected.slice(0, 3),
+          missedIngredients: []
+        },
+        {
+          id: 2,
+          title: `Gemüsepfanne mit ${detected[2] || 'Gemüse'}`,
+          image: 'https://spoonacular.com/recipeImages/641129-312x231.jpg',
+          readyInMinutes: 25,
+          servings: 3,
+          sourceUrl: 'https://spoonacular.com',
+          usedIngredients: detected.slice(1, 4),
+          missedIngredients: ['Gewürze nach Geschmack']
+        },
+        {
+          id: 3,
+          title: 'Gesunder Salat Mix',
+          image: 'https://spoonacular.com/recipeImages/641129-312x231.jpg',
+          readyInMinutes: 10,
+          servings: 2,
+          sourceUrl: 'https://spoonacular.com',
+          usedIngredients: detected.slice(0, 2),
+          missedIngredients: ['Olivenöl', 'Zitronensaft']
         }
-      }
-
+      ];
+      
+      setRecipes(demoRecipes);
       setStep('results');
     } catch (err) {
       console.error('Analysis error:', err);
-      setError('Fehler bei der Bildanalyse. Bitte versuche es erneut.');
+      setError('Fehler bei der Analyse. Bitte versuche es erneut.');
       setStep('analyze');
     } finally {
       setAnalyzing(false);
@@ -79,7 +101,7 @@ function App() {
   const videoConstraints = {
     width: 1280,
     height: 720,
-    facingMode: 'environment' // Use back camera on mobile
+    facingMode: 'environment'
   };
 
   return (
@@ -93,37 +115,29 @@ function App() {
           <p className="text-gray-600">
             Mache ein Foto deines Kühlschranks und erhalte Rezeptvorschläge!
           </p>
+          <div className="mt-2 bg-yellow-100 border border-yellow-300 text-yellow-800 px-3 py-1 rounded-lg inline-block text-sm">
+            ⚠️ Demo-Modus: Zufällige Zutaten-Erkennung (Cloud-APIs benötigen Billing)
+          </div>
         </header>
 
         {/* Error Message */}
         {error && (
           <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
             {error}
-            <button
-              onClick={() => setError('')}
-              className="float-right font-bold"
-            >
-              ×
-            </button>
+            <button onClick={() => setError('')} className="float-right font-bold">×</button>
           </div>
         )}
 
         {/* Step Indicator */}
         <div className="flex justify-center mb-6">
           <div className="flex items-center space-x-2">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-              step === 'camera' ? 'bg-green-500 text-white' : 'bg-gray-200'
-            }`}>1</div>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${step === 'camera' ? 'bg-green-500 text-white' : 'bg-gray-200'}`}>1</div>
             <div className="text-sm">Foto</div>
             <div className="w-8 h-0.5 bg-gray-300"></div>
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-              step === 'analyzing' || step === 'analyze' ? 'bg-green-500 text-white' : 'bg-gray-200'
-            }`}>2</div>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${step === 'analyzing' || step === 'analyze' ? 'bg-green-500 text-white' : 'bg-gray-200'}`}>2</div>
             <div className="text-sm">Analysieren</div>
             <div className="w-8 h-0.5 bg-gray-300"></div>
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-              step === 'results' ? 'bg-green-500 text-white' : 'bg-gray-200'
-            }`}>3</div>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${step === 'results' ? 'bg-green-500 text-white' : 'bg-gray-200'}`}>3</div>
             <div className="text-sm">Rezepte</div>
           </div>
         </div>
@@ -157,11 +171,7 @@ function App() {
         {/* Image Preview & Analyze */}
         {step === 'analyze' && !analyzing && (
           <div className="bg-white rounded-2xl shadow-xl p-6">
-            <img
-              src={image}
-              alt="Captured fridge"
-              className="w-full rounded-lg mb-4"
-            />
+            <img src={image} alt="Captured fridge" className="w-full rounded-lg mb-4" />
             <div className="flex space-x-4">
               <button
                 onClick={retakePhoto}
@@ -183,12 +193,8 @@ function App() {
         {step === 'analyzing' && analyzing && (
           <div className="bg-white rounded-2xl shadow-xl p-12 text-center">
             <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-green-500 mx-auto mb-4"></div>
-            <p className="text-xl text-gray-700">
-              🤖 Analysiere deine Zutaten...
-            </p>
-            <p className="text-gray-500 mt-2">
-              Das kann ein paar Sekunden dauern
-            </p>
+            <p className="text-xl text-gray-700">🤖 Analysiere deine Zutaten...</p>
+            <p className="text-gray-500 mt-2">Das kann ein paar Sekunden dauern</p>
           </div>
         )}
 
@@ -197,16 +203,11 @@ function App() {
           <div className="space-y-6">
             {/* Detected Items */}
             <div className="bg-white rounded-2xl shadow-xl p-6">
-              <h2 className="text-2xl font-bold text-green-700 mb-4">
-                🥬 Erkannte Zutaten
-              </h2>
+              <h2 className="text-2xl font-bold text-green-700 mb-4">🥬 Erkannte Zutaten</h2>
               {detectedItems.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
                   {detectedItems.map((item, index) => (
-                    <span
-                      key={index}
-                      className="bg-green-100 text-green-800 px-4 py-2 rounded-full font-medium"
-                    >
+                    <span key={index} className="bg-green-100 text-green-800 px-4 py-2 rounded-full font-medium">
                       {item}
                     </span>
                   ))}
@@ -219,20 +220,11 @@ function App() {
             {/* Recipe Suggestions */}
             {recipes.length > 0 && (
               <div className="bg-white rounded-2xl shadow-xl p-6">
-                <h2 className="text-2xl font-bold text-blue-700 mb-4">
-                  🍳 Rezeptvorschläge
-                </h2>
+                <h2 className="text-2xl font-bold text-blue-700 mb-4">🍳 Rezeptvorschläge</h2>
                 <div className="grid md:grid-cols-2 gap-4">
                   {recipes.map((recipe) => (
-                    <div
-                      key={recipe.id}
-                      className="border border-gray-200 rounded-lg overflow-hidden hover:shadow-lg transition"
-                    >
-                      <img
-                        src={recipe.image}
-                        alt={recipe.title}
-                        className="w-full h-48 object-cover"
-                      />
+                    <div key={recipe.id} className="border border-gray-200 rounded-lg overflow-hidden hover:shadow-lg transition">
+                      <img src={recipe.image} alt={recipe.title} className="w-full h-48 object-cover" />
                       <div className="p-4">
                         <h3 className="font-bold text-lg mb-2">{recipe.title}</h3>
                         <div className="flex items-center text-sm text-gray-600 mb-2">
@@ -243,7 +235,6 @@ function App() {
                         {recipe.usedIngredients.length > 0 && (
                           <div className="text-sm text-green-600 mb-2">
                             <strong>Hast du:</strong> {recipe.usedIngredients.slice(0, 3).join(', ')}
-                            {recipe.usedIngredients.length > 3 && '...'}
                           </div>
                         )}
                         {recipe.missedIngredients.length > 0 && (
@@ -281,8 +272,8 @@ function App() {
         {/* Info Card */}
         <div className="mt-8 bg-blue-50 border border-blue-200 rounded-xl p-4">
           <p className="text-sm text-blue-800">
-            <strong>💡 Tipp:</strong> Mache ein gut ausgeleuchtetes Foto von deinem Kühlschrank-Inhalt.
-            Je klarer die Zutaten zu erkennen sind, desto besser funktioniert die Erkennung!
+            <strong>💡 Hinweis:</strong> Diese Demo-Version simuliert die Zutaten-Erkennung.
+            Für echte Bilderkennung müsstest du Google Cloud Billing aktivieren (erste 1.000 Bilder/Monat kostenlos).
           </p>
         </div>
       </div>

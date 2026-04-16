@@ -20,7 +20,7 @@ app.use(express.static('dist'));
 // Image upload setup
 const upload = multer({ dest: 'uploads/' });
 
-// Clarifai Food Recognition API endpoint
+// Clarifai Food Recognition API endpoint (correct structure)
 app.post('/api/analyze-image', upload.single('image'), async (req, res) => {
   console.log('📸 Received image upload, file:', req.file?.originalname);
   
@@ -31,6 +31,9 @@ app.post('/api/analyze-image', upload.single('image'), async (req, res) => {
     }
 
     const clarifaiToken = process.env.CLARIFAI_API_KEY;
+    const clarifaiUserId = 'clarifai'; // Official Clarifai user
+    const clarifaiAppId = 'food-item-recognition'; // Official food app
+    
     if (!clarifaiToken) {
       console.error('❌ No Clarifai API key configured');
       return res.status(500).json({ error: 'Clarifai API key not configured' });
@@ -41,8 +44,9 @@ app.post('/api/analyze-image', upload.single('image'), async (req, res) => {
     // Convert image to base64
     const base64Image = req.file.buffer.toString('base64');
     
+    // Clarifai 2024 API: POST /v2/users/{user_id}/apps/{app_id}/outputs
     const response = await axios.post(
-      'https://api.clarifai.com/v2/models/food-item-recognition/predictions',
+      `https://api.clarifai.com/v2/users/${clarifaiUserId}/apps/${clarifaiAppId}/outputs`,
       {
         inputs: [
           {
@@ -84,17 +88,17 @@ app.post('/api/analyze-image', upload.single('image'), async (req, res) => {
         name: c.name,
         score: c.score
       })),
-      detectedText: '' // Clarifai doesn't do OCR by default
+      detectedText: ''
     });
 
   } catch (error) {
     console.error('❌ Clarifai API error:', error.response?.data || error.message);
     if (error.response?.data) {
-      console.error('❌ Error details:', JSON.stringify(error.response.data, null, 2));
+      console.error('❌ Full error:', JSON.stringify(error.response.data, null, 2));
     }
     res.status(500).json({ 
       error: 'Failed to analyze image with Clarifai',
-      details: error.response?.data?.error?.message || error.message
+      details: error.response?.data?.status?.description || error.message
     });
   }
 });

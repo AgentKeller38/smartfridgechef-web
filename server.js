@@ -20,7 +20,7 @@ app.use(express.static('dist'));
 // Image upload setup
 const upload = multer({ dest: 'uploads/' });
 
-// Google Vision API endpoint
+// Clarifai Food Recognition API endpoint
 app.post('/api/analyze-image', upload.single('image'), async (req, res) => {
   console.log('📸 Received image upload, file:', req.file?.originalname);
   
@@ -30,73 +30,70 @@ app.post('/api/analyze-image', upload.single('image'), async (req, res) => {
       return res.status(400).json({ error: 'No image uploaded' });
     }
 
-    const base64Image = req.file.buffer.toString('base64');
-    console.log('📷 Image size:', base64Image.length, 'bytes');
-    
-    const visionApiKey = process.env.GOOGLE_VISION_API_KEY;
-    if (!visionApiKey) {
-      console.error('❌ No Vision API key configured');
-      return res.status(500).json({ error: 'Google Vision API key not configured' });
+    const clarifaiToken = process.env.CLARIFAI_API_KEY;
+    if (!clarifaiToken) {
+      console.error('❌ No Clarifai API key configured');
+      return res.status(500).json({ error: 'Clarifai API key not configured' });
     }
 
-    console.log('🔍 Calling Google Vision API...');
+    console.log('🔍 Calling Clarifai Food Recognition API...');
+    
+    // Convert image to base64
+    const base64Image = req.file.buffer.toString('base64');
+    
     const response = await axios.post(
-      `https://vision.googleapis.com/v1/images:annotate?key=${visionApiKey}`,
+      'https://api.clarifai.com/v2/models/food-item-recognition/predictions',
       {
-        requests: [
+        inputs: [
           {
-            image: { content: base64Image },
-            features: [
-              { type: 'LABEL_DETECTION', maxResults: 20 },
-              { type: 'TEXT_DETECTION', maxResults: 10 }
-            ]
+            data: {
+              image: {
+                base64: base64Image
+              }
+            }
           }
         ]
       },
-      { timeout: 30000 }
+      {
+        headers: {
+          'Authorization': `Key ${clarifaiToken}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      }
     );
 
-    console.log('✅ Vision API response received');
-    console.log('📊 Full response:', JSON.stringify(response.data, null, 2));
-
-    const labels = response.data.responses?.[0]?.labelAnnotations || [];
-    const textAnnotations = response.data.responses?.[0]?.textAnnotations || [];
-
-    // Extract potential food items from labels - broader matching
-    const foodKeywords = [
-      'food', 'fruit', 'vegetable', 'meat', 'cheese', 'bread', 
-      'egg', 'milk', 'drink', 'snack', 'tomato', 'lettuce', 
-      'onion', 'potato', 'carrot', 'apple', 'banana', 'orange',
-      'chicken', 'beef', 'pork', 'fish', 'rice', 'pasta',
-      'salad', 'cucumber', 'pepper', 'mushroom', 'broccoli'
-    ];
-
-    const foodItems = labels
-      .filter(label => {
-        const desc = label.description.toLowerCase();
-        return foodKeywords.some(keyword => desc.includes(keyword));
-      })
-      .map(label => label.description);
-
-    // Also include text detected (could be product names)
-    const detectedText = textAnnotations.slice(1).map(t => t.description).join(' ');
-    const textItems = detectedText.split(/[\s\n]+/).filter(t => t.length > 2);
-
-    const allItems = [...new Set([...foodItems, ...textItems].filter(Boolean))];
+    console.log('✅ Clarifai API response received');
     
-    console.log('🥬 Detected items:', allItems);
+    const outputs = response.data.outputs || [];
+    const concepts = outputs[0]?.data?.concepts || [];
+    
+    console.log('📊 Raw concepts:', concepts.length);
+
+    // Filter for high-confidence food items (score > 0.5)
+    const foodItems = concepts
+      .filter(concept => concept.score > 0.5)
+      .map(concept => concept.name)
+      .slice(0, 10); // Top 10 items
+
+    console.log('🥬 Detected food items:', foodItems);
 
     res.json({
-      labels: labels.map(l => ({ description: l.description, score: l.score })),
-      foodItems: allItems,
-      detectedText
+      foodItems: foodItems,
+      allConcepts: concepts.slice(0, 20).map(c => ({
+        name: c.name,
+        score: c.score
+      })),
+      detectedText: '' // Clarifai doesn't do OCR by default
     });
 
   } catch (error) {
-    console.error('❌ Vision API error:', error.response?.data || error.message);
-    console.error('❌ Error details:', JSON.stringify(error.response?.data, null, 2));
+    console.error('❌ Clarifai API error:', error.response?.data || error.message);
+    if (error.response?.data) {
+      console.error('❌ Error details:', JSON.stringify(error.response.data, null, 2));
+    }
     res.status(500).json({ 
-      error: 'Failed to analyze image',
+      error: 'Failed to analyze image with Clarifai',
       details: error.response?.data?.error?.message || error.message
     });
   }

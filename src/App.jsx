@@ -1,208 +1,293 @@
-import { useState, useEffect } from 'react'
-import ItemRow from './components/ItemRow'
-import ItemForm from './components/ItemForm'
-import CategoryBadge from './components/CategoryBadge'
-
-// Mock-Daten
-const initialItems = [
-  {
-    id: 1,
-    name: 'Milch',
-    category: 'Dairy',
-    expirationDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    quantity: 2,
-    notes: 'Vollmilch 3,5%'
-  },
-  {
-    id: 2,
-    name: 'Eier',
-    category: 'Dairy',
-    expirationDate: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    quantity: 12,
-    notes: 'Bio-Hühnereier'
-  },
-  {
-    id: 3,
-    name: 'Apfel',
-    category: 'Fruits',
-    expirationDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    quantity: 6,
-    notes: 'Boskoop'
-  },
-  {
-    id: 4,
-    name: 'Brokkoli',
-    category: 'Vegetables',
-    expirationDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    quantity: 2,
-    notes: 'Frisch gewaschen'
-  },
-  {
-    id: 5,
-    name: 'Joghurt',
-    category: 'Dairy',
-    expirationDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    quantity: 4,
-    notes: 'Griechischer Joghurt'
-  }
-]
-
-const categories = [
-  { name: 'Dairy', label: 'Milchprodukte', color: 'bg-blue-500' },
-  { name: 'Fruits', label: 'Obst', color: 'bg-orange-500' },
-  { name: 'Vegetables', label: 'Gemüse', color: 'bg-green-500' },
-  { name: 'Meat', label: 'Fleisch', color: 'bg-red-500' },
-  { name: 'Beverages', label: 'Getränke', color: 'bg-cyan-500' },
-  { name: 'Snacks', label: 'Snacks', color: 'bg-purple-500' }
-]
+import { useState, useRef } from 'react';
+import Webcam from 'react-webcam';
+import './styles/index.css';
 
 function App() {
-  const [items, setItems] = useState(initialItems)
-  const [showForm, setShowForm] = useState(false)
-  const [searchTerm, setSearchTerm] = useState('')
-  const [selectedCategory, setSelectedCategory] = useState('All')
+  const [image, setImage] = useState(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [detectedItems, setDetectedItems] = useState([]);
+  const [recipes, setRecipes] = useState([]);
+  const [error, setError] = useState('');
+  const [step, setStep] = useState('camera'); // camera, analyzing, results
+  const webcamRef = useRef(null);
 
-  // Items nach Ablaufdatum sortieren
-  useEffect(() => {
-    const sorted = [...items].sort((a, b) => 
-      new Date(a.expirationDate) - new Date(b.expirationDate)
-    )
-    setItems(sorted)
-  }, [])
-
-  // Filterte Items
-  const filteredItems = items.filter(item => {
-    const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesCategory = selectedCategory === 'All' || item.category === selectedCategory
-    return matchesSearch && matchesCategory
-  })
-
-  // Item hinzufügen
-  const addItem = (newItem) => {
-    const item = {
-      ...newItem,
-      id: Date.now(),
-      addedDate: new Date().toISOString()
+  const captureImage = () => {
+    if (webcamRef.current) {
+      const imageSrc = webcamRef.current.getScreenshot();
+      setImage(imageSrc);
+      setStep('analyze');
     }
-    setItems(prev => [...prev, item])
-    setShowForm(false)
-  }
+  };
 
-  // Item löschen
-  const deleteItem = (id) => {
-    setItems(prev => prev.filter(item => item.id !== id))
-  }
+  const retakePhoto = () => {
+    setImage(null);
+    setStep('camera');
+    setDetectedItems([]);
+    setRecipes([]);
+    setError('');
+  };
 
-  // Days until expiry
-  const getDaysUntilExpiry = (expirationDate) => {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const expiry = new Date(expirationDate)
-    expiry.setHours(0, 0, 0, 0)
-    const diffTime = expiry - today
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-    return diffDays
-  }
+  const analyzeImage = async () => {
+    setAnalyzing(true);
+    setError('');
+    setStep('analyzing');
+
+    try {
+      // Convert base64 to blob
+      const response = await fetch(image);
+      const blob = await response.blob();
+
+      const formData = new FormData();
+      formData.append('image', blob, 'fridge.jpg');
+
+      const apiResponse = await fetch('/api/analyze-image', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!apiResponse.ok) {
+        throw new Error('Failed to analyze image');
+      }
+
+      const data = await apiResponse.json();
+      setDetectedItems(data.foodItems);
+
+      if (data.foodItems.length > 0) {
+        // Get recipes based on detected items
+        const recipesResponse = await fetch('/api/get-recipes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ingredients: data.foodItems })
+        });
+
+        if (recipesResponse.ok) {
+          const recipesData = await recipesResponse.json();
+          setRecipes(recipesData.recipes);
+        }
+      }
+
+      setStep('results');
+    } catch (err) {
+      console.error('Analysis error:', err);
+      setError('Fehler bei der Bildanalyse. Bitte versuche es erneut.');
+      setStep('analyze');
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const videoConstraints = {
+    width: 1280,
+    height: 720,
+    facingMode: 'environment' // Use back camera on mobile
+  };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg">
-        <div className="max-w-4xl mx-auto px-4 py-6">
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <span>🧊</span> SmartFridgeChef
+    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-50">
+      <div className="container mx-auto px-4 py-8 max-w-4xl">
+        {/* Header */}
+        <header className="text-center mb-8">
+          <h1 className="text-4xl font-bold text-green-700 mb-2">
+            🧊 Smart Fridge Chef
           </h1>
-          <p className="text-blue-100 text-sm mt-1">Dein Kühlschrank-Manager</p>
-        </div>
-      </header>
+          <p className="text-gray-600">
+            Mache ein Foto deines Kühlschranks und erhalte Rezeptvorschläge!
+          </p>
+        </header>
 
-      <main className="max-w-4xl mx-auto px-4 py-6">
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-4 mb-6">
-          <div className="bg-white rounded-xl p-4 shadow-sm text-center">
-            <div className="text-2xl font-bold text-blue-600">{items.length}</div>
-            <div className="text-xs text-gray-500">Items</div>
+        {/* Error Message */}
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+            {error}
+            <button
+              onClick={() => setError('')}
+              className="float-right font-bold"
+            >
+              ×
+            </button>
           </div>
-          <div className="bg-white rounded-xl p-4 shadow-sm text-center">
-            <div className="text-2xl font-bold text-orange-500">
-              {items.filter(i => getDaysUntilExpiry(i.expirationDate) <= 3).length}
-            </div>
-            <div className="text-xs text-gray-500">Bald abgelaufen</div>
-          </div>
-          <div className="bg-white rounded-xl p-4 shadow-sm text-center">
-            <div className="text-2xl font-bold text-green-500">
-              {new Set(items.map(i => i.category)).size}
-            </div>
-            <div className="text-xs text-gray-500">Kategorien</div>
-          </div>
-        </div>
-
-        {/* Search & Filter */}
-        <div className="flex gap-2 mb-4">
-          <input
-            type="text"
-            placeholder="Suchen..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <select
-            value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="All">Alle</option>
-            {categories.map(cat => (
-              <option key={cat.name} value={cat.name}>{cat.label}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Add Button */}
-        {!showForm && (
-          <button
-            onClick={() => setShowForm(true)}
-            className="w-full bg-blue-600 text-white py-3 rounded-xl font-medium hover:bg-blue-700 transition-colors mb-4 flex items-center justify-center gap-2"
-          >
-            <span>+</span> Neues Item hinzufügen
-          </button>
         )}
 
-        {/* Item Form */}
-        {showForm && (
-          <ItemForm
-            categories={categories}
-            onSubmit={addItem}
-            onCancel={() => setShowForm(false)}
-          />
-        )}
+        {/* Step Indicator */}
+        <div className="flex justify-center mb-6">
+          <div className="flex items-center space-x-2">
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+              step === 'camera' ? 'bg-green-500 text-white' : 'bg-gray-200'
+            }`}>1</div>
+            <div className="text-sm">Foto</div>
+            <div className="w-8 h-0.5 bg-gray-300"></div>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+              step === 'analyzing' || step === 'analyze' ? 'bg-green-500 text-white' : 'bg-gray-200'
+            }`}>2</div>
+            <div className="text-sm">Analysieren</div>
+            <div className="w-8 h-0.5 bg-gray-300"></div>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+              step === 'results' ? 'bg-green-500 text-white' : 'bg-gray-200'
+            }`}>3</div>
+            <div className="text-sm">Rezepte</div>
+          </div>
+        </div>
 
-        {/* Items List */}
-        <div className="space-y-3">
-          {filteredItems.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">
-              <div className="text-4xl mb-2">🧊</div>
-              <p>Keine Items gefunden</p>
-            </div>
-          ) : (
-            filteredItems.map(item => (
-              <ItemRow
-                key={item.id}
-                item={item}
-                daysUntilExpiry={getDaysUntilExpiry(item.expirationDate)}
-                onDelete={deleteItem}
+        {/* Camera View */}
+        {step === 'camera' && (
+          <div className="bg-white rounded-2xl shadow-xl p-6">
+            <div className="relative">
+              <Webcam
+                ref={webcamRef}
+                audio={false}
+                videoConstraints={videoConstraints}
+                screenshotFormat="image/jpeg"
+                className="w-full rounded-lg"
               />
-            ))
-          )}
-        </div>
-      </main>
+              <div className="absolute bottom-4 left-0 right-0 flex justify-center">
+                <button
+                  onClick={captureImage}
+                  className="bg-green-500 hover:bg-green-600 text-white px-8 py-3 rounded-full text-lg font-semibold shadow-lg transition transform hover:scale-105"
+                >
+                  📸 Foto machen
+                </button>
+              </div>
+            </div>
+            <p className="text-center text-gray-500 mt-4">
+              Richte die Kamera auf den Kühlschrank-Inhalt und mache ein Foto
+            </p>
+          </div>
+        )}
 
-      {/* Footer */}
-      <footer className="mt-12 py-6 text-center text-gray-500 text-sm">
-        <p>SmartFridgeChef Web App</p>
-      </footer>
+        {/* Image Preview & Analyze */}
+        {step === 'analyze' && !analyzing && (
+          <div className="bg-white rounded-2xl shadow-xl p-6">
+            <img
+              src={image}
+              alt="Captured fridge"
+              className="w-full rounded-lg mb-4"
+            />
+            <div className="flex space-x-4">
+              <button
+                onClick={retakePhoto}
+                className="flex-1 bg-gray-500 hover:bg-gray-600 text-white px-6 py-3 rounded-lg font-semibold"
+              >
+                🔄 Neu machen
+              </button>
+              <button
+                onClick={analyzeImage}
+                className="flex-1 bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-lg font-semibold"
+              >
+                ✨ Analysieren
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Analyzing */}
+        {step === 'analyzing' && analyzing && (
+          <div className="bg-white rounded-2xl shadow-xl p-12 text-center">
+            <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-green-500 mx-auto mb-4"></div>
+            <p className="text-xl text-gray-700">
+              🤖 Analysiere deine Zutaten...
+            </p>
+            <p className="text-gray-500 mt-2">
+              Das kann ein paar Sekunden dauern
+            </p>
+          </div>
+        )}
+
+        {/* Results */}
+        {step === 'results' && (
+          <div className="space-y-6">
+            {/* Detected Items */}
+            <div className="bg-white rounded-2xl shadow-xl p-6">
+              <h2 className="text-2xl font-bold text-green-700 mb-4">
+                🥬 Erkannte Zutaten
+              </h2>
+              {detectedItems.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {detectedItems.map((item, index) => (
+                    <span
+                      key={index}
+                      className="bg-green-100 text-green-800 px-4 py-2 rounded-full font-medium"
+                    >
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-500">Keine Zutaten erkannt</p>
+              )}
+            </div>
+
+            {/* Recipe Suggestions */}
+            {recipes.length > 0 && (
+              <div className="bg-white rounded-2xl shadow-xl p-6">
+                <h2 className="text-2xl font-bold text-blue-700 mb-4">
+                  🍳 Rezeptvorschläge
+                </h2>
+                <div className="grid md:grid-cols-2 gap-4">
+                  {recipes.map((recipe) => (
+                    <div
+                      key={recipe.id}
+                      className="border border-gray-200 rounded-lg overflow-hidden hover:shadow-lg transition"
+                    >
+                      <img
+                        src={recipe.image}
+                        alt={recipe.title}
+                        className="w-full h-48 object-cover"
+                      />
+                      <div className="p-4">
+                        <h3 className="font-bold text-lg mb-2">{recipe.title}</h3>
+                        <div className="flex items-center text-sm text-gray-600 mb-2">
+                          <span>⏱️ {recipe.readyInMinutes} Min</span>
+                          <span className="mx-2">•</span>
+                          <span>👥 {recipe.servings} Portionen</span>
+                        </div>
+                        {recipe.usedIngredients.length > 0 && (
+                          <div className="text-sm text-green-600 mb-2">
+                            <strong>Hast du:</strong> {recipe.usedIngredients.slice(0, 3).join(', ')}
+                            {recipe.usedIngredients.length > 3 && '...'}
+                          </div>
+                        )}
+                        {recipe.missedIngredients.length > 0 && (
+                          <div className="text-sm text-orange-600 mb-3">
+                            <strong>Fehlt:</strong> {recipe.missedIngredients.slice(0, 2).join(', ')}
+                          </div>
+                        )}
+                        <a
+                          href={recipe.sourceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block text-center bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold transition"
+                        >
+                          Rezept ansehen →
+                        </a>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Start Over */}
+            <div className="text-center">
+              <button
+                onClick={retakePhoto}
+                className="bg-green-500 hover:bg-green-600 text-white px-8 py-3 rounded-full text-lg font-semibold shadow-lg transition transform hover:scale-105"
+              >
+                🔄 Neues Foto machen
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Info Card */}
+        <div className="mt-8 bg-blue-50 border border-blue-200 rounded-xl p-4">
+          <p className="text-sm text-blue-800">
+            <strong>💡 Tipp:</strong> Mache ein gut ausgeleuchtetes Foto von deinem Kühlschrank-Inhalt.
+            Je klarer die Zutaten zu erkennen sind, desto besser funktioniert die Erkennung!
+          </p>
+        </div>
+      </div>
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
